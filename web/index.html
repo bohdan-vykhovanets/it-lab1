@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>СУБД Клієнт (Варіант 7/7)</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --danger: #dc2626;
+            --danger-hover: #b91c1c;
+            --success: #16a34a;
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-muted: #64748b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background-color: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+
+        header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .logo { font-size: 1.25rem; font-weight: 700; color: var(--primary); display: flex; align-items: center; gap: 8px; }
+        .header-actions { display: flex; gap: 8px; align-items: center; }
+
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+
+        /* Сайдбар */
+        .sidebar { width: 280px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .sidebar-title { font-weight: 600; font-size: 0.95rem; }
+        .table-list { list-style: none; overflow-y: auto; flex: 1; padding: 8px; }
+        .table-item { padding: 10px 14px; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; transition: background 0.15s; }
+        .table-item:hover { background: #f1f5f9; }
+        .table-item.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
+        .badge { background: #e2e8f0; color: var(--text-muted); font-size: 0.75rem; padding: 2px 6px; border-radius: 10px; font-weight: 500; }
+        .table-item.active .badge { background: #bfdbfe; color: var(--primary); }
+
+        /* Робоча зона */
+        .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--surface); margin: 16px; border-radius: 8px; border: 1px solid var(--border); }
+        .content-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .table-meta h2 { font-size: 1.3rem; margin-bottom: 4px; }
+        .table-meta p { font-size: 0.85rem; color: var(--text-muted); }
+        .content-actions { display: flex; gap: 8px; }
+
+        /* Таблиця */
+        .table-wrapper { flex: 1; overflow: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+        th { background: #f8fafc; padding: 12px 14px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+        th .col-type { font-size: 0.75rem; color: var(--primary); font-weight: normal; margin-left: 4px; }
+        
+        td { padding: 8px 14px; border-bottom: 1px solid var(--border); transition: background-color 0.2s; position: relative; }
+        tr:hover td { background-color: #fafafa; }
+        
+        /* Стиль інтерактивної комірки */
+        .editable-cell { cursor: cell; min-width: 120px; outline: none; }
+        .editable-cell:hover { background-color: #f1f5f9 !important; }
+        .editable-cell.editing { padding: 0; background: white !important; }
+        .editable-cell input { 
+            width: 100%; height: 100%; border: 2px solid var(--primary); 
+            padding: 8px 12px; font-size: 0.9rem; border-radius: 4px; outline: none; background: #fff;
+        }
+
+        /* Підсвічування результату збереження */
+        td.cell-saved { animation: flashSuccess 0.8s ease-out; }
+        td.cell-error { animation: flashError 1.2s ease-out; }
+        @keyframes flashSuccess { 0% { background-color: #bbf7d0; } 100% { background-color: transparent; } }
+        @keyframes flashError { 0% { background-color: #fecaca; } 100% { background-color: transparent; } }
+
+        .id-badge { background: #f1f5f9; color: var(--text-muted); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+        .actions-cell { text-align: right; white-space: nowrap; width: 60px; }
+
+        /* Кнопки */
+        .btn { padding: 7px 14px; border-radius: 6px; border: 1px solid transparent; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-outline { background: white; border-color: var(--border); color: var(--text); }
+        .btn-outline:hover { background: #f1f5f9; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: var(--danger-hover); }
+        .btn-sm { padding: 4px 8px; font-size: 0.8rem; }
+
+        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text-muted); gap: 12px; }
+
+        /* Модальні вікна */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(2px); }
+        .modal { background: white; border-radius: 8px; width: 480px; max-width: 90vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px; }
+        .form-control { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
+        .form-control:focus { outline: none; border-color: var(--primary); }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+        .col-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+        .toast { padding: 12px 18px; border-radius: 6px; color: white; font-size: 0.875rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.2s ease-out; }
+        .toast-error { background: var(--danger); }
+        .toast-success { background: var(--success); }
+        @keyframes slideIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo">
+            🗄️ <span id="db-title">СУБД (Варіант 7/7)</span>
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-outline" onclick="openNewDBModal()">Створити нову БД</button>
+            <button class="btn btn-outline" onclick="saveDB()">💾 Зберегти на диск</button>
+            <button class="btn btn-outline" onclick="loadDB()">📂 Завантажити з диску</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Таблиці</span>
+                <button class="btn btn-primary btn-sm" onclick="openCreateTableModal()">+ Нова</button>
+            </div>
+            <ul class="table-list" id="table-list"></ul>
+        </div>
+
+        <div class="content" id="content-area">
+            <div class="empty-state">
+                <p>Оберіть таблицю зі списку ліворуч або створіть нову.</p>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+    <div id="modal-container"></div>
+
+    <script>
+        let currentDB = null;
+        let activeTableName = null;
+
+        function showToast(msg, isError = false) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${isError ? 'toast-error' : 'toast-success'}`;
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        async function fetchDatabase(preserveActive = true) {
+            try {
+                const res = await fetch('/api/database');
+                currentDB = await res.json();
+                document.getElementById('db-title').textContent = `СУБД: ${currentDB.name || 'База'}`;
+                renderSidebar();
+                
+                if (preserveActive && activeTableName && currentDB.tables && currentDB.tables[activeTableName]) {
+                    renderTableContent(activeTableName);
+                } else {
+                    const firstTable = Object.keys(currentDB.tables || {})[0];
+                    if (firstTable) {
+                        selectTable(firstTable);
+                    } else {
+                        activeTableName = null;
+                        document.getElementById('content-area').innerHTML = `
+                            <div class="empty-state"><p>У базі даних немає таблиць. Створіть нову таблицю!</p></div>
+                        `;
+                    }
+                }
+            } catch (err) {
+                showToast("Помилка зв'язку з сервером: " + err, true);
+            }
+        }
+
+        function renderSidebar() {
+            const list = document.getElementById('table-list');
+            list.innerHTML = '';
+            const tables = currentDB.tables || {};
+
+            for (const [name, tbl] of Object.entries(tables)) {
+                const li = document.createElement('li');
+                li.className = `table-item ${name === activeTableName ? 'active' : ''}`;
+                li.onclick = () => selectTable(name);
+                li.innerHTML = `
+                    <span>📊 ${name}</span>
+                    <span class="badge">${tbl.rows ? tbl.rows.length : 0}</span>
+                `;
+                list.appendChild(li);
+            }
+        }
+
+        function selectTable(name) {
+            activeTableName = name;
+            renderSidebar();
+            renderTableContent(name);
+        }
+
+        // Відображення таблиці з автоматичним ID та інлайн-клітинами
+        function renderTableContent(tableName) {
+            const tbl = currentDB.tables[tableName];
+            if (!tbl) return;
+
+            const contentArea = document.getElementById('content-area');
+            const colHeaders = tbl.columns.map(c => `<th>${c.name} <span class="col-type">(${c.type})</span></th>`).join('');
+
+            let rowsHTML = '';
+            if (!tbl.rows || tbl.rows.length === 0) {
+                rowsHTML = `<tr><td colspan="${tbl.columns.length + 2}" style="text-align: center; color: var(--text-muted); padding: 32px;">Таблиця порожня. Натисніть "+ Додати рядок", щоб почати введення даних.</td></tr>`;
+            } else {
+                rowsHTML = tbl.rows.map((row, rowIdx) => `
+                    <tr data-row-idx="${rowIdx}">
+                        <td style="width: 50px;"><span class="id-badge">#${rowIdx + 1}</span></td>
+                        ${row.values.map((val, colIdx) => `
+                            <td class="editable-cell" 
+                                data-row="${rowIdx}" 
+                                data-col="${colIdx}" 
+                                title="Клікніть, щоб редагувати"
+                                onclick="startCellEdit(this)">${escapeHtml(val)}</td>
+                        `).join('')}
+                        <td class="actions-cell">
+                            <button class="btn btn-danger btn-sm" onclick="deleteRow(${rowIdx})" title="Видалити рядок">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            contentArea.innerHTML = `
+                <div class="content-header">
+                    <div class="table-meta">
+                        <h2>${tbl.name}</h2>
+                        <p>Колонок: ${tbl.columns.length} | Рядків: ${tbl.rows ? tbl.rows.length : 0} (Клікніть на будь-яку клітинку для редагування)</p>
+                    </div>
+                    <div class="content-actions">
+                        <button class="btn btn-primary" onclick="addNewRowDirectly()">+ Додати рядок</button>
+                        <button class="btn btn-outline" onclick="openProjectionModal()">⚡ Проєкція таблиці</button>
+                        <button class="btn btn-danger" onclick="dropTable('${tbl.name}')">Видалити таблицю</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                ${colHeaders}
+                                <th style="text-align: right; width: 60px;">Дії</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body">
+                            ${rowsHTML}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        // ================= ІНТЕРАКТИВНЕ ДОДАВАННЯ ТА ІНЛАЙН-РЕДАГУВАННЯ =================
+
+        // Додавання рядка без модального вікна
+        async function addNewRowDirectly() {
+            const tbl = currentDB.tables[activeTableName];
+            if (!tbl) return;
+
+            // Генеруємо дефолтні валідні значення відповідно до типів
+            const defaultValues = tbl.columns.map(col => {
+                switch(col.type) {
+                    case 'integer': return '0';
+                    case 'real': return '0.0';
+                    case 'char': return '-';
+                    case 'string': return '-';
+                    case '$': return '$0.00';
+                    case '$Invl': return '$0.00 - $0.00';
+                    default: return '-';
+                }
+            });
+
+            try {
+                const res = await fetch(`/api/tables/${encodeURIComponent(activeTableName)}/rows`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ values: defaultValues })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                await fetchDatabase(true);
+                showToast("Рядок додано! Клікніть на значення, щоб змінити його.");
+
+                // Автоматично активуємо редагування першої клітинки нового рядка
+                setTimeout(() => {
+                    const lastRowIdx = tbl.rows.length; // Новий доданий індекс
+                    const firstCell = document.querySelector(`td.editable-cell[data-row="${lastRowIdx}"][data-col="0"]`);
+                    if (firstCell) startCellEdit(firstCell);
+                }, 50);
+
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        }
+
+        // Активація режиму редагування клітинки
+        function startCellEdit(cell) {
+            if (cell.classList.contains('editing')) return;
+
+            const rowIdx = parseInt(cell.getAttribute('data-row'));
+            const colIdx = parseInt(cell.getAttribute('data-col'));
+            const tbl = currentDB.tables[activeTableName];
+            const col = tbl.columns[colIdx];
+            const originalVal = tbl.rows[rowIdx].values[colIdx];
+
+            cell.classList.add('editing');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = originalVal;
+            input.placeholder = getPlaceholder(col.type);
+
+            cell.innerHTML = '';
+            cell.appendChild(input);
+            input.focus();
+            input.select();
+
+            let isFinished = false;
+
+            const finishEdit = async (commit = true) => {
+                if (isFinished) return;
+                isFinished = true;
+
+                const newVal = input.value.trim();
+                cell.classList.remove('editing');
+
+                // Якщо значення не змінилось або скасовано
+                if (!commit || newVal === originalVal) {
+                    cell.textContent = originalVal;
+                    return;
+                }
+
+                // Готуємо повний оновлений рядок
+                const updatedRowValues = [...tbl.rows[rowIdx].values];
+                updatedRowValues[colIdx] = newVal;
+
+                try {
+                    const res = await fetch(`/api/tables/${encodeURIComponent(activeTableName)}/rows/${rowIdx}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ values: updatedRowValues })
+                    });
+                    const updatedRow = await res.json();
+                    if (!res.ok) throw new Error(updatedRow.error);
+
+                    // Успіх: оновлюємо значення в локальному стані та відображенні
+                    tbl.rows[rowIdx] = updatedRow;
+                    cell.textContent = updatedRow.values[colIdx];
+                    cell.classList.add('cell-saved');
+                    setTimeout(() => cell.classList.remove('cell-saved'), 1000);
+
+                } catch (err) {
+                    // Помилка: повертаємо старе значення і підсвічуємо червоним
+                    cell.textContent = originalVal;
+                    cell.classList.add('cell-error');
+                    setTimeout(() => cell.classList.remove('cell-error'), 1200);
+                    showToast(`Помилка валідації [${col.name}: ${col.type}]: ${err.message}`, true);
+                }
+            };
+
+            input.onblur = () => finishEdit(true);
+
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    input.blur(); // викличе finishEdit(true)
+                } else if (e.key === 'Escape') {
+                    finishEdit(false);
+                } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    input.blur();
+                    // Перехід до наступної клітинки в рядку
+                    const nextCol = colIdx + 1;
+                    const nextCell = document.querySelector(`td.editable-cell[data-row="${rowIdx}"][data-col="${nextCol}"]`);
+                    if (nextCell) {
+                        setTimeout(() => startCellEdit(nextCell), 30);
+                    }
+                }
+            };
+        }
+
+        async function deleteRow(idx) {
+            if (!confirm(`Видалити рядок #${idx + 1}?`)) return;
+            try {
+                const res = await fetch(`/api/tables/${encodeURIComponent(activeTableName)}/rows/${idx}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast("Рядок видалено");
+                fetchDatabase(true);
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        }
+
+        // ================= ІНДИВІДУАЛЬНА ОПЕРАЦІЯ: ПРОЄКЦІЯ (ВАРІАНТ 7) =================
+
+        function openProjectionModal() {
+            const tbl = currentDB.tables[activeTableName];
+            const checkboxes = tbl.columns.map(col => `
+                <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;">
+                    <input type="checkbox" name="proj-col" value="${col.name}">
+                    <span><strong>${col.name}</strong> (${col.type})</span>
+                </label>
+            `).join('');
+
+            showModal(`⚡ Проєкція таблиці "${tbl.name}"`, `
+                <div class="form-group">
+                    <label>Назва нової таблиці для результату:</label>
+                    <input class="form-control" id="proj-new-name" value="${tbl.name}_proj">
+                </div>
+                <div class="form-group">
+                    <label>Оберіть колонки для збереження у проєкції:</label>
+                    <div style="background:#f8fafc; padding:12px; border-radius:6px; border:1px solid var(--border); max-height:180px; overflow-y:auto;">
+                        ${checkboxes}
+                    </div>
+                </div>
+            `, async () => {
+                const newName = document.getElementById('proj-new-name').value.trim();
+                const selected = Array.from(document.querySelectorAll('input[name="proj-col"]:checked')).map(cb => cb.value);
+
+                if (!newName) throw new Error("Вкажіть назву нової таблиці");
+                if (selected.length === 0) throw new Error("Оберіть хоча б одну колонку");
+
+                const res = await fetch(`/api/tables/${encodeURIComponent(activeTableName)}/project`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ new_table_name: newName, columns: selected })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                showToast(`Проєкцію створено: таблиця "${newName}"!`);
+                closeModal();
+                activeTableName = newName;
+                fetchDatabase(true);
+            });
+        }
+
+        // ================= ОПЕРАЦІЇ З ТАБЛИЦЯМИ ТА БД =================
+
+        function openCreateTableModal() {
+            showModal(`Створити нову таблицю`, `
+                <div class="form-group">
+                    <label>Назва таблиці:</label>
+                    <input class="form-control" id="create-tbl-name" placeholder="наприклад, Accounts">
+                </div>
+                <div class="form-group">
+                    <label>Колонки (ID буде додано автоматично):</label>
+                    <div id="columns-builder"></div>
+                    <button type="button" class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="addColumnRow()">+ Додати колонку</button>
+                </div>
+            `, async () => {
+                const tableName = document.getElementById('create-tbl-name').value.trim();
+                const colRows = document.querySelectorAll('.col-row');
+                const columns = [];
+                colRows.forEach(row => {
+                    const name = row.querySelector('.col-name').value.trim();
+                    const type = row.querySelector('.col-type-select').value;
+                    if (name) columns.push({ name, type });
+                });
+
+                if (!tableName) throw new Error("Вкажіть назву таблиці");
+                if (columns.length === 0) throw new Error("Додайте хоча б одну колонку");
+
+                const res = await fetch('/api/tables', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: tableName, columns })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                showToast(`Таблицю "${tableName}" створено!`);
+                closeModal();
+                activeTableName = tableName;
+                fetchDatabase(true);
+            });
+
+            // Автоматичні пропозиції для бізнес-полів (без ручного ID!)
+            addColumnRow("Title", "string");
+            addColumnRow("Balance", "$");
+            addColumnRow("CreditLimit", "$Invl");
+        }
+
+        function addColumnRow(defName = "", defType = "string") {
+            const container = document.getElementById('columns-builder');
+            const div = document.createElement('div');
+            div.className = 'col-row';
+            div.innerHTML = `
+                <input class="form-control col-name" placeholder="Назва колонки" value="${defName}" style="flex:2;">
+                <select class="form-control col-type-select" style="flex:2;">
+                    <option value="integer" ${defType === 'integer' ? 'selected' : ''}>integer</option>
+                    <option value="real" ${defType === 'real' ? 'selected' : ''}>real</option>
+                    <option value="char" ${defType === 'char' ? 'selected' : ''}>char</option>
+                    <option value="string" ${defType === 'string' ? 'selected' : ''}>string</option>
+                    <option value="$" ${defType === '$' ? 'selected' : ''}>$ (гроші)</option>
+                    <option value="$Invl" ${defType === '$Invl' ? 'selected' : ''}>$Invl (інтервал)</option>
+                </select>
+                <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✕</button>
+            `;
+            container.appendChild(div);
+        }
+
+        async function dropTable(tableName) {
+            if (!confirm(`Ви дійсно бажаєте видалити таблицю "${tableName}"?`)) return;
+            try {
+                const res = await fetch(`/api/tables/${encodeURIComponent(tableName)}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Таблицю "${tableName}" видалено`);
+                activeTableName = null;
+                fetchDatabase(false);
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        }
+
+        function openNewDBModal() {
+            showModal("Створити нову базу даних", `
+                <div class="form-group">
+                    <label>Назва нової БД:</label>
+                    <input class="form-control" id="new-db-name" value="BankDB">
+                </div>
+            `, async () => {
+                const name = document.getElementById('new-db-name').value.trim();
+                if (!name) throw new Error("Вкажіть назву бази");
+                const res = await fetch('/api/database/new', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast("Нову базу даних створено!");
+                closeModal();
+                activeTableName = null;
+                fetchDatabase(false);
+            });
+        }
+
+        async function saveDB() {
+            try {
+                const res = await fetch('/api/database/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: "database.json" })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast("Базу даних успішно збережено на сервері!");
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        }
+
+        async function loadDB() {
+            if (!confirm("Завантажити збережену базу з диску? Незбережені поточні зміни будуть замінені.")) return;
+            try {
+                const res = await fetch('/api/database/load', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: "database.json" })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast("Базу даних завантажено!");
+                fetchDatabase(false);
+            } catch (err) {
+                showToast(err.message, true);
+            }
+        }
+
+        function getPlaceholder(type) {
+            switch(type) {
+                case 'integer': return 'напр. 42';
+                case 'real': return 'напр. 3.14';
+                case 'char': return 'напр. A';
+                case '$': return 'напр. $1,250.50';
+                case '$Invl': return 'напр. $100 - $500';
+                default: return 'текст...';
+            }
+        }
+
+        function showModal(title, bodyHTML, onConfirm) {
+            const container = document.getElementById('modal-container');
+            container.innerHTML = `
+                <div class="modal-overlay" onclick="if(event.target === this) closeModal()">
+                    <div class="modal">
+                        <div class="modal-header">
+                            <h3 style="font-size:1.1rem;">${title}</h3>
+                            <button style="border:none; background:none; font-size:1.2rem; cursor:pointer;" onclick="closeModal()">✕</button>
+                        </div>
+                        <div>${bodyHTML}</div>
+                        <div class="modal-footer">
+                            <button class="btn btn-outline" onclick="closeModal()">Скасувати</button>
+                            <button class="btn btn-primary" id="modal-submit-btn">Підтвердити</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-submit-btn').onclick = async () => {
+                try {
+                    await onConfirm();
+                } catch (err) {
+                    showToast(err.message, true);
+                }
+            };
+        }
+
+        function closeModal() {
+            document.getElementById('modal-container').innerHTML = '';
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        fetchDatabase(false);
+    </script>
+</body>
+</html>
