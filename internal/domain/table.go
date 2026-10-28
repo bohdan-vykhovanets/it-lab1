@@ -6,8 +6,10 @@ import (
 )
 
 type Column struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	RangeMin string `json:"range_min,omitempty"` // Наприклад "$100.00"
+	RangeMax string `json:"range_max,omitempty"` // Наприклад "$5,000.00"
 }
 
 type Row struct {
@@ -21,7 +23,7 @@ type Table struct {
 }
 
 func NewTable(name string, cols []Column) (*Table, error) {
-	if stringsTrim := len(name); stringsTrim == 0 {
+	if len(name) == 0 {
 		return nil, errors.New("table name cannot be empty")
 	}
 	if len(cols) == 0 {
@@ -29,7 +31,7 @@ func NewTable(name string, cols []Column) (*Table, error) {
 	}
 
 	seen := make(map[string]bool)
-	for _, col := range cols {
+	for i, col := range cols {
 		if col.Name == "" {
 			return nil, errors.New("column name cannot be empty")
 		}
@@ -40,6 +42,26 @@ func NewTable(name string, cols []Column) (*Table, error) {
 
 		if !SupportedTypes[col.Type] {
 			return nil, fmt.Errorf("unsupported type '%s' for column '%s'", col.Type, col.Name)
+		}
+
+		// Якщо тип $Invl, валідуємо сам діапазон колонки
+		if col.Type == TypeMoneyInvl {
+			if col.RangeMin == "" {
+				col.RangeMin = "$0.00"
+			}
+			if col.RangeMax == "" {
+				col.RangeMax = "$10,000,000,000,000.00"
+			}
+			minC, errMin := ParseMoney(col.RangeMin)
+			maxC, errMax := ParseMoney(col.RangeMax)
+			if errMin != nil || errMax != nil {
+				return nil, fmt.Errorf("invalid range limits in column '%s'", col.Name)
+			}
+			if minC > maxC {
+				return nil, fmt.Errorf("column '%s': RangeMin cannot be greater than RangeMax", col.Name)
+			}
+			cols[i].RangeMin = FormatMoney(minC)
+			cols[i].RangeMax = FormatMoney(maxC)
 		}
 	}
 
@@ -57,7 +79,7 @@ func (t *Table) AddRow(rawValues []string) error {
 
 	normalized := make([]string, len(t.Columns))
 	for i, col := range t.Columns {
-		normVal, err := ValidateAndNormalizeValue(col.Type, rawValues[i])
+		normVal, err := ValidateAndNormalizeValue(col, rawValues[i])
 		if err != nil {
 			return fmt.Errorf("column '%s' validation failed: %w", col.Name, err)
 		}
@@ -78,7 +100,7 @@ func (t *Table) UpdateRow(idx int, rawValues []string) error {
 
 	normalized := make([]string, len(t.Columns))
 	for i, col := range t.Columns {
-		normVal, err := ValidateAndNormalizeValue(col.Type, rawValues[i])
+		normVal, err := ValidateAndNormalizeValue(col, rawValues[i])
 		if err != nil {
 			return fmt.Errorf("column '%s' error: %w", col.Name, err)
 		}
@@ -97,7 +119,6 @@ func (t *Table) DeleteRow(idx int) error {
 	return nil
 }
 
-// Project здійснює проєкцію таблиці за вказаними колонками (Операція Варіанту 7)
 func (t *Table) Project(newTableName string, columnNames []string) (*Table, error) {
 	if len(columnNames) == 0 {
 		return nil, errors.New("projection requires at least one column")

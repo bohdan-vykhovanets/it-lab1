@@ -54,8 +54,7 @@
         td { padding: 8px 14px; border-bottom: 1px solid var(--border); transition: background-color 0.2s; position: relative; }
         tr:hover td { background-color: #fafafa; }
         
-        /* Стиль інтерактивної комірки */
-        .editable-cell { cursor: cell; min-width: 120px; outline: none; }
+        .editable-cell { cursor: cell; min-width: 130px; outline: none; }
         .editable-cell:hover { background-color: #f1f5f9 !important; }
         .editable-cell.editing { padding: 0; background: white !important; }
         .editable-cell input { 
@@ -63,7 +62,6 @@
             padding: 8px 12px; font-size: 0.9rem; border-radius: 4px; outline: none; background: #fff;
         }
 
-        /* Підсвічування результату збереження */
         td.cell-saved { animation: flashSuccess 0.8s ease-out; }
         td.cell-error { animation: flashError 1.2s ease-out; }
         @keyframes flashSuccess { 0% { background-color: #bbf7d0; } 100% { background-color: transparent; } }
@@ -72,7 +70,6 @@
         .id-badge { background: #f1f5f9; color: var(--text-muted); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
         .actions-cell { text-align: right; white-space: nowrap; width: 60px; }
 
-        /* Кнопки */
         .btn { padding: 7px 14px; border-radius: 6px; border: 1px solid transparent; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.15s; display: inline-flex; align-items: center; gap: 6px; }
         .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-hover); }
@@ -86,16 +83,18 @@
 
         /* Модальні вікна */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; justify-content: center; align-items: center; z-index: 100; backdrop-filter: blur(2px); }
-        .modal { background: white; border-radius: 8px; width: 480px; max-width: 90vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .modal { background: white; border-radius: 8px; width: 540px; max-width: 95vw; max-height: 90vh; overflow-y: auto; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .form-group { margin-bottom: 14px; }
         .form-group label { display: block; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px; }
         .form-control { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem; }
         .form-control:focus { outline: none; border-color: var(--primary); }
         .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-        .col-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+        
+        .col-row { display: flex; gap: 6px; margin-bottom: 8px; align-items: center; }
+        .range-box { display: flex; gap: 4px; }
 
-        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
         .toast { padding: 12px 18px; border-radius: 6px; color: white; font-size: 0.875rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.2s ease-out; }
         .toast-error { background: var(--danger); }
         .toast-success { background: var(--success); }
@@ -144,7 +143,7 @@
             toast.className = `toast ${isError ? 'toast-error' : 'toast-success'}`;
             toast.textContent = msg;
             container.appendChild(toast);
-            setTimeout(() => toast.remove(), 4000);
+            setTimeout(() => toast.remove(), 4500);
         }
 
         async function fetchDatabase(preserveActive = true) {
@@ -195,13 +194,16 @@
             renderTableContent(name);
         }
 
-        // Відображення таблиці з автоматичним ID та інлайн-клітинами
+        // Відображення таблиці з автоматичним ID, типами та діапазонами
         function renderTableContent(tableName) {
             const tbl = currentDB.tables[tableName];
             if (!tbl) return;
 
             const contentArea = document.getElementById('content-area');
-            const colHeaders = tbl.columns.map(c => `<th>${c.name} <span class="col-type">(${c.type})</span></th>`).join('');
+            const colHeaders = tbl.columns.map(c => {
+                let rangeLabel = c.type === '$Invl' ? ` [${c.range_min || '$0'} .. ${c.range_max || 'max'}]` : '';
+                return `<th>${c.name} <span class="col-type">(${c.type}${rangeLabel})</span></th>`;
+            }).join('');
 
             let rowsHTML = '';
             if (!tbl.rows || tbl.rows.length === 0) {
@@ -255,12 +257,11 @@
 
         // ================= ІНТЕРАКТИВНЕ ДОДАВАННЯ ТА ІНЛАЙН-РЕДАГУВАННЯ =================
 
-        // Додавання рядка без модального вікна
         async function addNewRowDirectly() {
             const tbl = currentDB.tables[activeTableName];
             if (!tbl) return;
 
-            // Генеруємо дефолтні валідні значення відповідно до типів
+            // Генеруємо валідні початкові значення, враховуючи налаштований RangeMin
             const defaultValues = tbl.columns.map(col => {
                 switch(col.type) {
                     case 'integer': return '0';
@@ -268,7 +269,7 @@
                     case 'char': return '-';
                     case 'string': return '-';
                     case '$': return '$0.00';
-                    case '$Invl': return '$0.00 - $0.00';
+                    case '$Invl': return col.range_min || '$0.00';
                     default: return '-';
                 }
             });
@@ -283,11 +284,10 @@
                 if (!res.ok) throw new Error(data.error);
 
                 await fetchDatabase(true);
-                showToast("Рядок додано! Клікніть на значення, щоб змінити його.");
+                showToast("Рядок додано!");
 
-                // Автоматично активуємо редагування першої клітинки нового рядка
                 setTimeout(() => {
-                    const lastRowIdx = tbl.rows.length; // Новий доданий індекс
+                    const lastRowIdx = tbl.rows.length;
                     const firstCell = document.querySelector(`td.editable-cell[data-row="${lastRowIdx}"][data-col="0"]`);
                     if (firstCell) startCellEdit(firstCell);
                 }, 50);
@@ -297,7 +297,6 @@
             }
         }
 
-        // Активація режиму редагування клітинки
         function startCellEdit(cell) {
             if (cell.classList.contains('editing')) return;
 
@@ -311,7 +310,7 @@
             const input = document.createElement('input');
             input.type = 'text';
             input.value = originalVal;
-            input.placeholder = getPlaceholder(col.type);
+            input.placeholder = getPlaceholder(col);
 
             cell.innerHTML = '';
             cell.appendChild(input);
@@ -327,13 +326,11 @@
                 const newVal = input.value.trim();
                 cell.classList.remove('editing');
 
-                // Якщо значення не змінилось або скасовано
                 if (!commit || newVal === originalVal) {
                     cell.textContent = originalVal;
                     return;
                 }
 
-                // Готуємо повний оновлений рядок
                 const updatedRowValues = [...tbl.rows[rowIdx].values];
                 updatedRowValues[colIdx] = newVal;
 
@@ -346,18 +343,16 @@
                     const updatedRow = await res.json();
                     if (!res.ok) throw new Error(updatedRow.error);
 
-                    // Успіх: оновлюємо значення в локальному стані та відображенні
                     tbl.rows[rowIdx] = updatedRow;
                     cell.textContent = updatedRow.values[colIdx];
                     cell.classList.add('cell-saved');
                     setTimeout(() => cell.classList.remove('cell-saved'), 1000);
 
                 } catch (err) {
-                    // Помилка: повертаємо старе значення і підсвічуємо червоним
                     cell.textContent = originalVal;
                     cell.classList.add('cell-error');
                     setTimeout(() => cell.classList.remove('cell-error'), 1200);
-                    showToast(`Помилка валідації [${col.name}: ${col.type}]: ${err.message}`, true);
+                    showToast(`Помилка [${col.name}]: ${err.message}`, true);
                 }
             };
 
@@ -365,13 +360,12 @@
 
             input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
-                    input.blur(); // викличе finishEdit(true)
+                    input.blur();
                 } else if (e.key === 'Escape') {
                     finishEdit(false);
                 } else if (e.key === 'Tab') {
                     e.preventDefault();
                     input.blur();
-                    // Перехід до наступної клітинки в рядку
                     const nextCol = colIdx + 1;
                     const nextCell = document.querySelector(`td.editable-cell[data-row="${rowIdx}"][data-col="${nextCol}"]`);
                     if (nextCell) {
@@ -438,7 +432,7 @@
             });
         }
 
-        // ================= ОПЕРАЦІЇ З ТАБЛИЦЯМИ ТА БД =================
+        // ================= СТВОРЕННЯ ТАБЛИЦІ ТА НАЛАШТУВАННЯ ДІАПАЗОНІВ =================
 
         function openCreateTableModal() {
             showModal(`Створити нову таблицю`, `
@@ -447,60 +441,77 @@
                     <input class="form-control" id="create-tbl-name" placeholder="наприклад, Accounts">
                 </div>
                 <div class="form-group">
-                    <label>Колонки (ID буде додано автоматично):</label>
+                    <label>Колонки (ID формується автоматично):</label>
                     <div id="columns-builder"></div>
                     <button type="button" class="btn btn-outline btn-sm" style="margin-top:8px;" onclick="addColumnRow()">+ Додати колонку</button>
                 </div>
-            `, async () => {
-                const tableName = document.getElementById('create-tbl-name').value.trim();
-                const colRows = document.querySelectorAll('.col-row');
-                const columns = [];
-                colRows.forEach(row => {
-                    const name = row.querySelector('.col-name').value.trim();
-                    const type = row.querySelector('.col-type-select').value;
-                    if (name) columns.push({ name, type });
-                });
+            `, submitCreateTable);
 
-                if (!tableName) throw new Error("Вкажіть назву таблиці");
-                if (columns.length === 0) throw new Error("Додайте хоча б одну колонку");
-
-                const res = await fetch('/api/tables', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: tableName, columns })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
-
-                showToast(`Таблицю "${tableName}" створено!`);
-                closeModal();
-                activeTableName = tableName;
-                fetchDatabase(true);
-            });
-
-            // Автоматичні пропозиції для бізнес-полів (без ручного ID!)
+            // Рекомендовані колонки за замовчуванням
             addColumnRow("Title", "string");
             addColumnRow("Balance", "$");
-            addColumnRow("CreditLimit", "$Invl");
+            addColumnRow("Salary", "$Invl", "$100.00", "$5,000.00");
         }
 
-        function addColumnRow(defName = "", defType = "string") {
+        function addColumnRow(defName = "", defType = "string", defMin = "$100.00", defMax = "$5,000.00") {
             const container = document.getElementById('columns-builder');
             const div = document.createElement('div');
             div.className = 'col-row';
             div.innerHTML = `
-                <input class="form-control col-name" placeholder="Назва колонки" value="${defName}" style="flex:2;">
-                <select class="form-control col-type-select" style="flex:2;">
+                <input class="form-control col-name" placeholder="Назва" value="${defName}" style="flex:2;">
+                <select class="form-control col-type-select" style="flex:2;" onchange="toggleRangeInputs(this)">
                     <option value="integer" ${defType === 'integer' ? 'selected' : ''}>integer</option>
                     <option value="real" ${defType === 'real' ? 'selected' : ''}>real</option>
                     <option value="char" ${defType === 'char' ? 'selected' : ''}>char</option>
                     <option value="string" ${defType === 'string' ? 'selected' : ''}>string</option>
                     <option value="$" ${defType === '$' ? 'selected' : ''}>$ (гроші)</option>
-                    <option value="$Invl" ${defType === '$Invl' ? 'selected' : ''}>$Invl (інтервал)</option>
+                    <option value="$Invl" ${defType === '$Invl' ? 'selected' : ''}>$Invl (з діапазоном)</option>
                 </select>
+                <div class="range-box" style="display:${defType === '$Invl' ? 'flex' : 'none'}; flex:3; gap:4px;">
+                    <input class="form-control col-range-min" placeholder="Min" value="${defMin}">
+                    <input class="form-control col-range-max" placeholder="Max" value="${defMax}">
+                </div>
                 <button type="button" class="btn btn-danger btn-sm" onclick="this.parentElement.remove()">✕</button>
             `;
             container.appendChild(div);
+        }
+
+        function toggleRangeInputs(select) {
+            const rangeBox = select.parentElement.querySelector('.range-box');
+            if (rangeBox) {
+                rangeBox.style.display = (select.value === '$Invl') ? 'flex' : 'none';
+            }
+        }
+
+        async function submitCreateTable() {
+            const tableName = document.getElementById('create-tbl-name').value.trim();
+            const colRows = document.querySelectorAll('.col-row');
+            const columns = [];
+            colRows.forEach(row => {
+                const name = row.querySelector('.col-name').value.trim();
+                const type = row.querySelector('.col-type-select').value;
+                const min = row.querySelector('.col-range-min') ? row.querySelector('.col-range-min').value.trim() : "";
+                const max = row.querySelector('.col-range-max') ? row.querySelector('.col-range-max').value.trim() : "";
+                if (name) {
+                    columns.push({ name, type, range_min: min, range_max: max });
+                }
+            });
+
+            if (!tableName) throw new Error("Вкажіть назву таблиці");
+            if (columns.length === 0) throw new Error("Додайте хоча б одну колонку");
+
+            const res = await fetch('/api/tables', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: tableName, columns })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            showToast(`Таблицю "${tableName}" створено!`);
+            closeModal();
+            activeTableName = tableName;
+            fetchDatabase(true);
         }
 
         async function dropTable(tableName) {
@@ -516,6 +527,8 @@
                 showToast(err.message, true);
             }
         }
+
+        // ================= ОПЕРАЦІЇ З БАЗОЮ ТА ДИСКОМ =================
 
         function openNewDBModal() {
             showModal("Створити нову базу даних", `
@@ -565,20 +578,20 @@
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
-                showToast("Базу даних завантажено!");
+                showToast("Базу даних перевірено та успішно завантажено!");
                 fetchDatabase(false);
             } catch (err) {
-                showToast(err.message, true);
+                showToast("Помилка імпорту: " + err.message, true);
             }
         }
 
-        function getPlaceholder(type) {
-            switch(type) {
+        function getPlaceholder(col) {
+            switch(col.type) {
                 case 'integer': return 'напр. 42';
                 case 'real': return 'напр. 3.14';
                 case 'char': return 'напр. A';
                 case '$': return 'напр. $1,250.50';
-                case '$Invl': return 'напр. $100 - $500';
+                case '$Invl': return `напр. ${col.range_min || '$100.00'}`;
                 default: return 'текст...';
             }
         }

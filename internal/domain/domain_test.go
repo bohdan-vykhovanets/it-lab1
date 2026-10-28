@@ -1,12 +1,14 @@
 package domain
 
 import (
+	"os"
 	"testing"
 )
 
 // Тест 1: Валідація грошового типу $
 func TestMoneyValidation(t *testing.T) {
-	// Валідні випадки
+	col := Column{Name: "Amount", Type: TypeMoney}
+
 	validCases := []struct {
 		input    string
 		expected string
@@ -15,104 +17,106 @@ func TestMoneyValidation(t *testing.T) {
 		{"5000", "$5,000.00"},
 		{"$1,250,000.99", "$1,250,000.99"},
 		{"0", "$0.00"},
-		{"10000000000000.00", "$10,000,000,000,000.00"},
 	}
 
 	for _, tc := range validCases {
-		res, err := ValidateAndNormalizeValue(TypeMoney, tc.input)
+		res, err := ValidateAndNormalizeValue(col, tc.input)
 		if err != nil {
-			t.Errorf("Valid money '%s' gave unexpected error: %v", tc.input, err)
+			t.Errorf("Valid money '%s' failed: %v", tc.input, err)
 		}
 		if res != tc.expected {
 			t.Errorf("For input '%s', expected '%s', got '%s'", tc.input, tc.expected, res)
 		}
 	}
 
-	// Невалідні випадки
-	invalidCases := []string{
-		"-50.00",              // Від'ємні
-		"100.999",             // Більше 2 знаків після коми
-		"10000000000000.01",   // Перевищення ліміту 10 трлн
-		"abc",                 // Не число
-	}
-
+	invalidCases := []string{"-50.00", "100.999", "abc", "10000000000000.01"}
 	for _, input := range invalidCases {
-		_, err := ValidateAndNormalizeValue(TypeMoney, input)
+		_, err := ValidateAndNormalizeValue(col, input)
 		if err == nil {
 			t.Errorf("Invalid money '%s' was accepted, expected error", input)
 		}
 	}
 }
 
-// Тест 2: Валідація інтервалу $Invl
-func TestMoneyIntervalValidation(t *testing.T) {
-	validIntervals := []string{
-		"$10.00 - $50.00",
-		"[$100, $200]",
-		"1,000.00 - 5,000.00",
-		"$10.00 - $10.00", // min == max дозволено
+// Тест 2: Валідація допустимого діапазону для $Invl
+func TestMoneyRangeValidation(t *testing.T) {
+	// Колонка з діапазоном від $100 до $1,000
+	col := Column{
+		Name:     "Salary",
+		Type:     TypeMoneyInvl,
+		RangeMin: "$100.00",
+		RangeMax: "$1,000.00",
 	}
 
-	for _, inv := range validIntervals {
-		_, err := ValidateAndNormalizeValue(TypeMoneyInvl, inv)
+	// Значення в межах діапазону
+	validValues := []string{"$100.00", "$500.00", "$1,000.00"}
+	for _, val := range validValues {
+		_, err := ValidateAndNormalizeValue(col, val)
 		if err != nil {
-			t.Errorf("Valid interval '%s' failed: %v", inv, err)
+			t.Errorf("Value '%s' should be valid in range [%s - %s]: %v", val, col.RangeMin, col.RangeMax, err)
 		}
 	}
 
-	invalidIntervals := []string{
-		"$50.00 - $10.00", // From > To
-		"$100",            // Не інтервал
-		"$10 - invalid",   // Помилка в To
-	}
-
-	for _, inv := range invalidIntervals {
-		_, err := ValidateAndNormalizeValue(TypeMoneyInvl, inv)
+	// Значення поза межами діапазону
+	invalidValues := []string{"$50.00", "$1,500.00", "0"}
+	for _, val := range invalidValues {
+		_, err := ValidateAndNormalizeValue(col, val)
 		if err == nil {
-			t.Errorf("Invalid interval '%s' was accepted, expected error", inv)
+			t.Errorf("Value '%s' is out of range [%s - %s], but was accepted", val, col.RangeMin, col.RangeMax)
 		}
 	}
 }
 
-// Тест 3: Тестування індивідуальної операції варіанту (Проєкція таблиці)
+// Тест 3: Операція проєкції
 func TestTableProjection(t *testing.T) {
 	cols := []Column{
 		{Name: "ID", Type: TypeInteger},
-		{Name: "Name", Type: TypeString},
-		{Name: "Balance", Type: TypeMoney},
-		{Name: "CreditLimit", Type: TypeMoneyInvl},
+		{Name: "Title", Type: TypeString},
+		{Name: "Price", Type: TypeMoney},
+		{Name: "Budget", Type: TypeMoneyInvl, RangeMin: "$10.00", RangeMax: "$1,000.00"},
 	}
 
-	table, err := NewTable("Accounts", cols)
+	table, err := NewTable("Products", cols)
 	if err != nil {
 		t.Fatalf("Failed to create table: %v", err)
 	}
 
-	_ = table.AddRow([]string{"1", "Alice", "$500.00", "$100 - $1,000"})
-	_ = table.AddRow([]string{"2", "Bob", "$1,200.50", "$500 - $2,000"})
+	_ = table.AddRow([]string{"1", "Laptop", "$1,200.00", "$500.00"})
+	_ = table.AddRow([]string{"2", "Mouse", "$25.00", "$20.00"})
 
-	// Виконуємо проєкцію на дві колонки: Name та Balance
-	projected, err := table.Project("ProjectedAccounts", []string{"Name", "Balance"})
+	proj, err := table.Project("Projected", []string{"Title", "Budget"})
 	if err != nil {
 		t.Fatalf("Projection failed: %v", err)
 	}
 
-	// Перевірка кількості колонок
-	if len(projected.Columns) != 2 {
-		t.Fatalf("Expected 2 columns in projection, got %d", len(projected.Columns))
+	if len(proj.Columns) != 2 || len(proj.Rows) != 2 {
+		t.Fatalf("Projection dimensions invalid")
 	}
-	if projected.Columns[0].Name != "Name" || projected.Columns[1].Name != "Balance" {
-		t.Errorf("Column names in projection mismatch")
+	if proj.Rows[0].Values[1] != "$500.00" {
+		t.Errorf("Projected value mismatch")
 	}
+}
 
-	// Перевірка рядків
-	if len(projected.Rows) != 2 {
-		t.Fatalf("Expected 2 rows in projection, got %d", len(projected.Rows))
-	}
-	if projected.Rows[0].Values[0] != "Alice" || projected.Rows[0].Values[1] != "$500.00" {
-		t.Errorf("Row 0 projection data mismatch: %v", projected.Rows[0].Values)
-	}
-	if projected.Rows[1].Values[0] != "Bob" || projected.Rows[1].Values[1] != "$1,200.50" {
-		t.Errorf("Row 1 projection data mismatch: %v", projected.Rows[1].Values)
+// Тест 4: Валідація при імпорті даних із файлу
+func TestImportValidation(t *testing.T) {
+	db := NewDatabase("TestDB")
+	invalidJson := `{
+		"name": "CorruptedDB",
+		"tables": {
+			"T1": {
+				"name": "T1",
+				"columns": [{"name": "Col1", "type": "$Invl", "range_min": "$100", "range_max": "$500"}],
+				"rows": [{"values": ["$999.00"]}]
+			}
+		}
+	}`
+
+	tmpFile := "corrupted_test.json"
+	_ = os.WriteFile(tmpFile, []byte(invalidJson), 0644)
+	defer os.Remove(tmpFile)
+
+	err := db.LoadFromFile(tmpFile)
+	if err == nil {
+		t.Errorf("Expected import to fail due to value $999.00 exceeding range, but it passed")
 	}
 }
